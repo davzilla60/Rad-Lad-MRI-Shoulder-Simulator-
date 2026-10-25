@@ -32,8 +32,12 @@ arm in the standard position.
    radiographer's dashed), a sequences-to-consider table, and the marker.
 
 Boxes are projected onto each panel using its real IPP / IOP, so they line up on the scouts, the axial series and the
-double-oblique coronal alike. Drag the box to move it, drag its edges to change coverage or FOV, or use the steppers /
-CLI (`slices`, `thick`, `gap`, `fov`, `angle`, `use <series>`, `restore <plane>`, `help`).
+double-oblique coronal alike. **Every box can be angled on every panel:** drag a ⟳ handle at either end and the stack
+rotates about that panel's normal (a full 3-D orientation, so double obliques work). The one exception is the user's
+rule: the coronal / sagittal angle **on the axial panel** stays padlocked until the axial series has been dropped onto
+it. The grade uses the oblique's angle as seen on the axial; tilts on the other panels are allowed. Drag the box to
+move it, drag its edges to change coverage or FOV, or use the steppers / CLI (`slices`, `thick`, `gap`, `fov`,
+`angle`, `use <series>`, `restore <plane>`, `help`).
 
 ## Files
 

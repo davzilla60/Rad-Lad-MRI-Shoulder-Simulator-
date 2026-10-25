@@ -607,6 +607,15 @@
 #scg-root .mre-rot.is-off{stroke:var(--warn)}
 #scg-root .mre-rotline{stroke:var(--accent);stroke-width:1;stroke-dasharray:3 3;vector-effect:non-scaling-stroke;pointer-events:none}
 #scg-root .mre-rotline.is-off{stroke:var(--warn)}
+#scg-root .mre-rot.is-lock{stroke:var(--ink-faint);stroke-dasharray:2 2;fill:rgba(10,14,8,.85);cursor:not-allowed}
+#scg-root .mre-rotline.is-lock{stroke:var(--ink-faint)}
+#scg-root .mre-tx.is-lock{fill:var(--ink-dim)}
+#scg-root .mre-cell.is-want{animation:mrs-want 1.4s ease-in-out infinite}
+@keyframes mrs-want{0%,100%{box-shadow:inset 0 0 0 2px rgba(232,180,95,.25)}50%{box-shadow:inset 0 0 0 3px rgba(232,180,95,.9)}}
+#scg-root .mre-want{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);z-index:4;pointer-events:none;white-space:nowrap;
+  font-size:10px;letter-spacing:.12em;color:var(--warn);background:rgba(10,8,4,.85);border:1px solid rgba(232,180,95,.6);border-radius:5px;padding:4px 8px}
+#scg-root .mre-angbox .mre-tray{margin-top:2px}
+#scg-root .mre-ang button.is-lock{opacity:.45;cursor:not-allowed}
 #scg-root .mre-hgrip{fill:var(--accent);pointer-events:none}
 #scg-root .mre-hgrip.is-off{fill:var(--warn)}
 #scg-root .mre-card.is-locked{opacity:.55}
@@ -847,10 +856,25 @@ function frameOf(q, ang){
   var t=ang*Math.PI/180;
   return { u:[Math.cos(t), Math.sin(t), 0], v:[0,0,-1], n:[-Math.sin(t), Math.cos(t), 0] };
 }
-function frame(q){ return frameOf(q, S.plan[q].ang); }
+function frame(q){ return S.plan[q].f; }
+function rotV(a, k, c, s){ var kd=dot(k,a), kx=cross(k,a); return [a[0]*c+kx[0]*s+k[0]*kd*(1-c), a[1]*c+kx[1]*s+k[1]*kd*(1-c), a[2]*c+kx[2]*s+k[2]*kd*(1-c)]; }
+/* rotate frame f by deg about axis k, then keep it reading the right way round on screen */
+function rotFrame(q, f, k, deg){
+  var L=Math.hypot(k[0],k[1],k[2]); k=mul(k, 1/L);
+  var t=deg*Math.PI/180, c=Math.cos(t), s=Math.sin(t), g={ u:rotV(f.u,k,c,s), v:rotV(f.v,k,c,s), n:rotV(f.n,k,c,s) };
+  if(q==="ax"){ if(g.u[0]<0){ g.u=mul(g.u,-1); g.v=mul(g.v,-1); } }
+  else {
+    if(dot(g.u, q==="cor"?[1,0,0]:[0,1,0]) < 0){ g.u=mul(g.u,-1); g.n=mul(g.n,-1); }
+    if(g.v[2] > 0){ g.v=mul(g.v,-1); g.n=mul(g.n,-1); }
+  }
+  return g;
+}
+/* the oblique's angle on the axial (in-plane direction, degrees from +x toward +y), and its tilt out of that plane */
+function axAng(q){ if(q==="ax") return 0; var n=S.plan[q].f.n; return normAng(q, Math.atan2(-n[0], n[1])*180/Math.PI, true); }
+function tiltOf(q){ var n=S.plan[q].f.n; return Math.round((q==="ax" ? Math.acos(Math.min(1,Math.abs(n[2]))) : Math.asin(Math.min(1,Math.abs(n[2]))))*180/Math.PI); }
 /* stack edges along n, measured from the humeral head centre */
 function edges(q){ var pl=S.plan[q], s=dot(sub(pl.c, HH), frame(q).n), h=coverage(pl)/2; return [s-h, s+h]; }
-function angErr(q){ if(q==="ax") return 0; var d=((S.plan[q].ang-REF[q])%180+180)%180; return d>90 ? d-180 : d; }
+function angErr(q){ if(q==="ax") return 0; var d=((axAng(q)-REF[q])%180+180)%180; return d>90 ? d-180 : d; }
 function angOK(q){ return q==="ax" || Math.abs(angErr(q)) <= TOL; }
 function inBox(q, P){
   var F=frame(q), pl=S.plan[q], d=sub(P, pl.c);
@@ -877,9 +901,10 @@ function sgn(v){ return (v>=0?"+":"−")+Math.abs(v).toFixed(0); }
    STATE
    ============================================================= */
 function clone(o){ return JSON.parse(JSON.stringify(o)); }
+function startPlan(q){ var p=clone(SEQ[q].start); p.f=frameOf(q, p.ang); delete p.ang; return p; }
 function freshState(){
   return { phase:"title", pos:null, loaded:false, loading:false, locDone:false,
-           plan:{ ax:clone(SEQ.ax.start), cor:clone(SEQ.cor.start), sag:clone(SEQ.sag.start) },
+           plan:{ ax:startPlan("ax"), cor:startPlan("cor"), sag:startPlan("sag") },
            done:{}, ids:{}, acq:{}, swap:{}, chosen:{ ax:{t2:1}, cor:{t1:1, stir:1}, sag:{t1:1} }, cur:null, viewId:null, viewK:0, list:[] };
 }
 var S = freshState();
@@ -1054,7 +1079,7 @@ function proj(G, P){ var d=sub(P, G.ipp); return [dot(d,G.row)/G.mmu, dot(d,G.co
 function projDir(G, d){ return [dot(d,G.row)/G.mmu, dot(d,G.col)/G.mmu]; }
 function unproj(G, x, y){ return axpy(axpy(G.ipp, G.row, x*G.mmu), G.col, y*G.mmu); }
 function f1(v){ return v.toFixed(1); }
-function canRotate(p, q){ return p==="ax" && needsAngle(q) && !!S.swap.ax; }
+function canRotate(p, q){ return !(p==="ax" && needsAngle(q) && !S.swap.ax); }
 /* the drawable shape of plan q on panel p */
 function shapeOf(p, q){
   var G=panelGeo(p), F=frame(q), pl=S.plan[q], N=cross(G.row, G.col), t=Math.abs(dot(F.n, N)), half=pl.fov/2, cov=coverage(pl);
@@ -1071,7 +1096,8 @@ function shapeOf(p, q){
     for(var i=0;i<pl.n;i+=every){ var m=axpy(c, F.n, -cov/2+pl.thk/2+i*step); sh.lines.push([P2(axpy(m,A,-half)), P2(axpy(m,A,half))]); }
     sh.a=a;
   }
-  if(canRotate(p, q)) sh.rot={ c:P2(c), h:P2(axpy(c, F.u, -(half+10))) };     // handle on the medial end, where there is room
+  var RA = sh.parallel ? F.u : F[sh.a];                // handles at both ends of the box, along its long in-panel axis
+  sh.rot={ c:P2(c), h:[P2(axpy(c, RA, -(half+8))), P2(axpy(c, RA, half+8))], lock:!canRotate(p, q) };
   return sh;
 }
 function svgBox(p, q, mode){
@@ -1088,9 +1114,13 @@ function svgBox(p, q, mode){
            '<circle class="mre-hgrip'+cls+'" cx="'+f1(mx)+'" cy="'+f1(my)+'" r="2.6"/>';
     });
     if(sh.rot){
-      out+='<line class="mre-rotline'+cls+'" x1="'+f1(sh.rot.c[0])+'" y1="'+f1(sh.rot.c[1])+'" x2="'+f1(sh.rot.h[0])+'" y2="'+f1(sh.rot.h[1])+'"/>'+
-           '<circle class="mre-rot'+cls+'" data-h="rot" cx="'+f1(sh.rot.h[0])+'" cy="'+f1(sh.rot.h[1])+'" r="5.5"/>'+
-           '<text class="mre-tx'+cls+'" x="'+f1(sh.rot.h[0]-8)+'" y="'+f1(sh.rot.h[1]-8)+'">⟳ '+Math.round(pl.ang)+'°</text>';
+      var rc = sh.rot.lock ? " is-lock" : cls, H=sh.rot.h;
+      out+='<line class="mre-rotline'+rc+'" x1="'+f1(H[0][0])+'" y1="'+f1(H[0][1])+'" x2="'+f1(H[1][0])+'" y2="'+f1(H[1][1])+'"/>';
+      H.forEach(function(h, i){
+        out+='<circle class="mre-rot'+rc+'" data-h="rot|'+(i?1:-1)+'" cx="'+f1(h[0])+'" cy="'+f1(h[1])+'" r="8"/>'+
+             '<text class="mre-tx'+rc+'" style="font-size:9px" text-anchor="middle" x="'+f1(h[0])+'" y="'+f1(h[1]+3.2)+'" pointer-events="none">'+(sh.rot.lock?"🔒":"⟳")+'</text>';
+      });
+      out+='<text class="mre-tx'+rc+'" x="'+f1(H[0][0]-10)+'" y="'+f1(H[0][1]-11)+'">'+(sh.rot.lock?"angle locked":(needsAngle(q)&&p==="ax"?"angle "+Math.round(axAng(q))+"°":"tilt "+tiltOf(q)+"°"))+'</text>';
     }
     var top=K.reduce(function(m,k){ return k[1]<m[1]?k:m; }, K[0]);
     var tx = sh.parallel ? "FOV "+pl.fov+" mm" : pl.n+" sl · "+pl.thk+" mm · "+coverage(pl).toFixed(0)+" mm";
@@ -1110,12 +1140,15 @@ function drawOverlays(){
     var lab2="";
     if(S.phase==="plan"){
       var q=S.cur;
-      if(canRotate(p, q)) lab2="drag ⟳ to angle · box = move · edges = size";
-      else if(p==="ax" && needsAngle(q)) lab2="drag the AXIAL series here to angle";
-      else lab2 = shapeOf(p, q).parallel ? "in-plane · edges = FOV" : "drag box · edges = coverage / FOV";
+      if(!canRotate(p, q)) lab2="🔒 angle: drop the axial series here first";
+      else lab2 = "⟳ = angle · box = move · edges = "+(shapeOf(p, q).parallel ? "FOV" : "coverage / FOV");
     }
     CELL[p].lab2.textContent=lab2;
-    CELL[p].lab2.style.color = (S.phase==="plan" && p==="ax" && needsAngle(S.cur) && !S.swap.ax) ? "var(--warn)" : "";
+    var want = S.phase==="plan" && p==="ax" && needsAngle(S.cur) && !S.swap.ax, tag=CELL[p].el.querySelector(".mre-want");
+    CELL[p].lab2.style.color = want ? "var(--warn)" : "";
+    CELL[p].el.classList.toggle("is-want", want);
+    if(want && !tag){ tag=document.createElement("div"); tag.className="mre-want"; tag.textContent="⬇ DROP THE AXIAL SERIES HERE TO ANGLE"; CELL[p].el.appendChild(tag); }
+    if(!want && tag) tag.remove();
   });
 }
 /* dragging */
@@ -1131,6 +1164,7 @@ function along(G, c, d, m){ var c2=proj(G, c), d2=projDir(G, d), L=d2[0]*d2[0]+d
     e.preventDefault();
     var q=S.cur;
     drag={ p:p, h:h, q:q, start:svgPt(svg, e), G:panelGeo(p), pl0:clone(S.plan[q]), F0:frame(q) };
+    if(h.indexOf("rot")===0){ var c2=proj(drag.G, S.plan[q].c); drag.c2=c2; drag.a0=Math.atan2(drag.start[1]-c2[1], drag.start[0]-c2[0]); drag.wasOK=angOK(q); }
     try{ svg.setPointerCapture(e.pointerId); }catch(_){}
     CELL[p].el.classList.add("is-active");
   });
@@ -1140,9 +1174,12 @@ function along(G, c, d, m){ var c2=proj(G, c), d2=projDir(G, d), L=d2[0]*d2[0]+d
     if(drag.h==="body"){
       var d=unproj(G, m[0], m[1]), d0=unproj(G, drag.start[0], drag.start[1]);
       pl.c=add(p0.c, sub(d, d0));
-    } else if(drag.h==="rot"){
-      var P=unproj(G, m[0], m[1]), v=sub(P, pl.c);
-      if(Math.hypot(v[0], v[1]) > 4) setAngle(q, Math.atan2(-v[1], -v[0])*180/Math.PI, true);   // the handle sits at -u
+    } else if(drag.h.indexOf("rot")===0){
+      if(!canRotate(p, q)){ if(!drag.warned){ drag.warned=true; log("the angle unlocks on the real axial images — drag your axial series from the tray onto the AXIAL panel first.","warn"); } return; }
+      var a1=Math.atan2(m[1]-drag.c2[1], m[0]-drag.c2[0]), dd=(a1-drag.a0)*180/Math.PI;      // rotate about this panel's normal
+      pl.f=rotFrame(q, drag.F0, cross(G.row, G.col), dd);
+      if(needsAngle(q) && angOK(q) && !drag.wasOK){ drag.wasOK=true; log(SEQ[q].name.toLowerCase()+" angle: "+(q==="cor"?"parallel to":"perpendicular to")+" the supraspinatus tendon ✓","ok"); }
+      if(!angOK(q)) drag.wasOK=false;
     } else {
       var ax=drag.h.split("|")[0], side=drag.h.split("|")[1], s=along(G, p0.c, F[ax], m);
       if(ax==="n"){                                       // coverage: move this end, keep the other
@@ -1159,15 +1196,15 @@ function along(G, c, d, m){ var c2=proj(G, c), d2=projDir(G, d), L=d2[0]*d2[0]+d
   function end(){ if(drag && drag.p===p){ CELL[p].el.classList.remove("is-active"); drag=null; render(); } }
   svg.addEventListener("pointerup", end); svg.addEventListener("pointercancel", end);
 });
-function normAng(q, a){
+function normAng(q, a, exact){
   if(q==="cor"){ while(a>=90) a-=180; while(a<-90) a+=180; }
   else { while(a>=180) a-=180; while(a<0) a+=180; }
-  return Math.round(a);
+  return exact ? a : Math.round(a);
 }
 function setAngle(q, a, quiet){
   if(!needsAngle(q)) return;
   var was=angOK(q);
-  S.plan[q].ang=normAng(q, a);
+  S.plan[q].f=rotFrame(q, S.plan[q].f, [0,0,1], normAng(q, a, true)-axAng(q));
   if(!quiet){ afterPlan(); }
   if(angOK(q) && !was) log(SEQ[q].name.toLowerCase()+" angle: "+(q==="cor"?"parallel to":"perpendicular to")+" the supraspinatus tendon ✓","ok");
 }
@@ -1319,13 +1356,19 @@ function covBlock(q){
     (a.coarse?'<div class="miss"><i>!</i><span>FOV over 220 mm — pixels '+a.res.toFixed(2)+' mm, too coarse for the cuff and labrum</span></div>':'')+'</div>';
 }
 function angleBlock(q){
-  if(!needsAngle(q)) return "";
+  if(!needsAngle(q)) return '<div class="mre-angbox"><b class="t">ANGLE</b><div class="scg-hint">Drag a ⟳ handle at either end of the box, on any scout, to angle the axial stack — e.g. on the coronal scout, perpendicular to the glenoid face. Current tilt '+tiltOf(q)+'°.</div></div>';
   var a=analyse(q), sw=!!S.swap.ax;
-  if(!sw) return '<div class="mre-angbox is-bad"><b class="t">ANGLE · LOCKED</b><div class="scg-hint is-warn">Drag your completed <b>axial series</b> from the tray below onto the <b>AXIAL</b> panel (or tap it). The rotate handle ⟳ appears on the real axial images — the scout is too coarse to see the tendon.</div></div>';
+  if(!sw){
+    var axIds=Object.keys(S.acq).filter(function(id){ return SER[id].plane==="ax"; });
+    return '<div class="mre-angbox is-bad"><b class="t">ANGLE ON THE AXIAL · 🔒 LOCKED</b>'+
+      '<div class="mre-ang"><span>ROTATE</span><button type="button" class="is-lock" data-d="-5">−5°</button><button type="button" class="is-lock" data-d="-1">−1°</button><output>'+Math.round(axAng(q))+'°</output><button type="button" class="is-lock" data-d="1">+1°</button><button type="button" class="is-lock" data-d="5">+5°</button></div>'+
+      '<div class="scg-hint is-warn">To unlock the angle, drag your axial series below onto the <b>AXIAL</b> panel (bottom left) — or tap it. You angle on the real axial images: the scout is too coarse to see the supraspinatus tendon.</div>'+
+      '<div class="mre-tray">'+axIds.map(function(id){ return '<button type="button" class="mre-thumb" data-id="'+id+'" title="Drag onto the AX scout"><canvas width="152" height="152"></canvas><span>AX · '+SER[id].seq+'</span></button>'; }).join('')+'</div></div>';
+  }
   return '<div class="mre-angbox '+(a.angOK?"is-ok":"is-bad")+'"><b class="t">ANGLE ON THE AXIAL</b>'+
-    '<div class="mre-ang"><span>ROTATE</span><button type="button" data-d="-5">−5°</button><button type="button" data-d="-1">−1°</button><output>'+Math.round(S.plan[q].ang)+'°</output><button type="button" data-d="1">+1°</button><button type="button" data-d="5">+5°</button></div>'+
+    '<div class="mre-ang"><span>ROTATE</span><button type="button" data-d="-5">−5°</button><button type="button" data-d="-1">−1°</button><output>'+Math.round(axAng(q))+'°</output><button type="button" data-d="1">+1°</button><button type="button" data-d="5">+5°</button></div>'+
     '<div class="scg-hint '+(a.angOK?"is-ok":"is-warn")+'">'+(a.angOK ? "✓ Slices run "+(q==="cor"?"parallel":"perpendicular")+" to the supraspinatus tendon."
-      : "Scroll the axial panel up to a slice where the supraspinatus tendon runs out to the greater tuberosity, then drag ⟳ so the slices run "+(q==="cor"?"<b>along</b> it":"<b>across</b> it")+".")+'</div></div>';
+      : "Scroll the axial panel up to a slice where the supraspinatus tendon runs out to the greater tuberosity, then drag ⟳ so the slices run "+(q==="cor"?"<b>along</b> it":"<b>across</b> it")+".")+' The ⟳ handles on the other panels tilt the box too (tilt now '+tiltOf(q)+'°).</div></div>';
 }
 function renderRail(){
   var p=S.phase;
@@ -1353,7 +1396,7 @@ function renderRail(){
       return '<div class="mre-card'+(d?" is-done":"")+(locked?" is-locked":"")+'"><div class="mre-card-h"><i class="mre-sw" style="background:'+COLORS[q]+'"></i><b>'+SEQ[q].name+'</b>'+
         '<span class="mre-chip '+(d?(ok?"ok":"warn"):"")+'">'+(d?(ok?"✓ SCANNED":"⚠ SCANNED · GAPS"):(locked?"🔒 AXIAL FIRST":"○ NOT PLANNED"))+'</span></div>'+
         '<p>'+(names.length?names.join(" · "):"no sequence chosen")+'</p>'+
-        (d?'<p>'+regionName(q, edges(q)[0])+' → '+regionName(q, edges(q)[1])+' · '+S.plan[q].n+' slices'+(needsAngle(q)?' · '+Math.round(S.plan[q].ang)+'°':'')+'</p>':
+        (d?'<p>'+regionName(q, edges(q)[0])+' → '+regionName(q, edges(q)[1])+' · '+S.plan[q].n+' slices'+(needsAngle(q)?' · '+Math.round(axAng(q))+'°':'')+'</p>':
           (locked?'<p>Plan and scan the axial first — the obliques are angled on the axial images.</p>':''))+
         '<button class="scg-btn'+(d||locked?"":" is-primary")+'" type="button" data-q="'+q+'"'+(locked?" disabled":"")+'><span>'+(d?"RE-PLAN":"PLAN")+' '+SEQ[q].name+'</span><span class="scg-key">plan '+q+'</span></button></div>';
     }).join('')+'</div><div class="scg-hint">The scouts on the left show every plane you have scanned so far, in its colour.</div>'+trayBlock();
@@ -1381,7 +1424,9 @@ function renderRail(){
         if(b.dataset.a==="n") setN(S.cur, pl.n+d); else if(b.dataset.a==="thk") setThk(S.cur, pl.thk+d); else if(b.dataset.a==="gap") setGap(S.cur, pl.gap+d); else setFov(S.cur, pl.fov+d); };
     });
     Array.prototype.forEach.call(railBody.querySelectorAll(".mre-ang button"), function(b){
-      b.onclick=function(){ var d=parseFloat(b.dataset.d); logCmd("angle "+Math.round(S.plan[S.cur].ang+d)); setAngle(S.cur, S.plan[S.cur].ang+d); };
+      b.onclick=function(){ var d=parseFloat(b.dataset.d); logCmd("angle "+Math.round(axAng(S.cur)+d));
+        if(!S.swap.ax){ log("drag the completed axial series onto the AXIAL panel first — you angle on the real axial images.","warn"); return; }
+        setAngle(S.cur, axAng(S.cur)+d); };
     });
     bindSeqList(); bindTray();
   }
@@ -1398,7 +1443,7 @@ function renderRail(){
   }
   else if(p==="result"){
     railTitle.textContent="Review"; railDesc.textContent="Every series you acquired · scroll each stack";
-    railBody.innerHTML=kvBlock(["ax","cor","sag"].map(function(q){ return [SEQ[q].name.replace(" OBLIQUE"," OBL"), S.plan[q].n+" sl"+(needsAngle(q)?" · "+Math.round(S.plan[q].ang)+"°":"")+" · "+(planOK(q)?"✓":"⚠")]; }))+
+    railBody.innerHTML=kvBlock(["ax","cor","sag"].map(function(q){ return [SEQ[q].name.replace(" OBLIQUE"," OBL"), S.plan[q].n+" sl"+(needsAngle(q)?" · "+Math.round(axAng(q))+"°":"")+" · "+(planOK(q)?"✓":"⚠")]; }))+
       '<div class="scg-hint">Switch series with the buttons on the image. The full debrief, sequences to consider and credits are below.</div>';
   }
   else { railTitle.textContent="Console"; railDesc.textContent="Awaiting operator"; railBody.innerHTML=""; }
@@ -1710,7 +1755,7 @@ function showResult(){
   showSeries(S.ids.cor[0], null);
   var rows=["ax","cor","sag"].map(function(q){
     var a=analyse(q), ok=planOK(q);
-    return '<div class="scg-drow"><i class="scg-d-'+(ok?"ok":"warn")+'">'+(ok?"✓":"⚠")+'</i><div><b>'+SEQ[q].name+'</b><em>'+S.plan[q].n+' × '+S.plan[q].thk+' mm · FOV '+S.plan[q].fov+(needsAngle(q)?' · '+Math.round(S.plan[q].ang)+'°':'')+'</em>'+
+    return '<div class="scg-drow"><i class="scg-d-'+(ok?"ok":"warn")+'">'+(ok?"✓":"⚠")+'</i><div><b>'+SEQ[q].name+'</b><em>'+S.plan[q].n+' × '+S.plan[q].thk+' mm · FOV '+S.plan[q].fov+(needsAngle(q)?' · '+Math.round(axAng(q))+'°':'')+'</em>'+
       '<p>'+regionName(q,a.lo)+' → '+regionName(q,a.hi)+' ('+a.cov.toFixed(0)+' mm). '+
       (needsAngle(q) ? (a.angOK ? "Angled "+(q==="cor"?"parallel":"perpendicular")+" to the supraspinatus — "+Math.abs(a.ang).toFixed(0)+"° from the radiographer's plane. " :
         "Angle "+Math.abs(a.ang).toFixed(0)+"° away from "+(q==="cor"?"parallel to":"perpendicular to")+" the supraspinatus. ") : "")+
@@ -1760,7 +1805,7 @@ function heroLines(cv, id, k, cr){
     g.beginPath(); g.moveTo(a[0],a[1]); g.lineTo(b[0],b[1]); g.stroke(); g.restore();
   }
   seg(C.real.cor, "#ffffff", true); seg(C.real.sag, "#ffffff", true);
-  seg(S.plan.cor.ang, COLORS.cor, false); seg(S.plan.sag.ang, COLORS.sag, false);
+  seg(axAng("cor"), COLORS.cor, false); seg(axAng("sag"), COLORS.sag, false);
 }
 function resetAll(){
   S=freshState();
